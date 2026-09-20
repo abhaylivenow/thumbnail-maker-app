@@ -1,8 +1,5 @@
 package abhay.live.now.thumbnailmaker
 
-import android.graphics.Bitmap
-import android.media.MediaMetadataRetriever
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -11,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -23,27 +21,21 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import abhay.live.now.thumbnailmaker.ui.PickerViewModel
 import abhay.live.now.thumbnailmaker.ui.theme.ThumbnailMakerTheme
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,29 +52,18 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ThumbnailScreen(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var thumbnails by remember { mutableStateOf<List<File>>(emptyList()) }
-    var isProcessing by remember { mutableStateOf(false) }
-    var statusText by remember { mutableStateOf("Select a video to generate thumbnails") }
+fun ThumbnailScreen(
+    modifier: Modifier = Modifier,
+    viewModel: PickerViewModel = viewModel()
+) {
+    val uiState by viewModel.state.collectAsState()
+    val saveState by viewModel.saveState.collectAsState()
 
     val videoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+    ) { uri ->
         if (uri != null) {
-            isProcessing = true
-            statusText = "Extracting frames..."
-            scope.launch {
-                val files = extractFrames(context, uri)
-                thumbnails = files
-                isProcessing = false
-                statusText = if (files.isNotEmpty()) {
-                    "Extracted ${files.size} thumbnails"
-                } else {
-                    "Failed to extract frames"
-                }
-            }
+            viewModel.pickVideo(uri)
         }
     }
 
@@ -90,10 +71,48 @@ fun ThumbnailScreen(modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = statusText, style = MaterialTheme.typography.titleMedium)
+        // Status text
+        when (val state = uiState) {
+            is PickerViewModel.UiState.Idle -> {
+                Text(
+                    text = "Select a video to generate thumbnails",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+            is PickerViewModel.UiState.Processing -> {
+                Text(
+                    text = state.stage,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                if (state.progress > 0f) {
+                    LinearProgressIndicator(
+                        progress = { state.progress },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    CircularProgressIndicator()
+                }
+            }
+            is PickerViewModel.UiState.Done -> {
+                Text(
+                    text = "Extracted ${state.frames.size} thumbnails",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+            is PickerViewModel.UiState.Error -> {
+                Text(
+                    text = state.message,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Buttons
+        val isProcessing = uiState is PickerViewModel.UiState.Processing
         Button(
             onClick = { videoPickerLauncher.launch("video/*") },
             enabled = !isProcessing
@@ -101,79 +120,62 @@ fun ThumbnailScreen(modifier: Modifier = Modifier) {
             Text("Pick Video")
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (isProcessing) {
-            CircularProgressIndicator()
+        if (uiState is PickerViewModel.UiState.Done) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = { viewModel.saveAllToGallery() },
+                enabled = saveState !is PickerViewModel.SaveState.Saving
+            ) {
+                Text(
+                    when (saveState) {
+                        is PickerViewModel.SaveState.Saving -> "Saving..."
+                        is PickerViewModel.SaveState.Saved ->
+                            "Saved ${(saveState as PickerViewModel.SaveState.Saved).count} to Gallery"
+                        else -> "Download All"
+                    }
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = { viewModel.reset() }) {
+                Text("Reset")
+            }
         }
 
+        if (uiState is PickerViewModel.UiState.Error) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = { viewModel.reset() }) {
+                Text("Reset")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Results grid
+        val frames = (uiState as? PickerViewModel.UiState.Done)?.frames ?: emptyList()
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 150.dp),
             contentPadding = PaddingValues(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            items(thumbnails) { file ->
-                val bitmap = remember(file) {
-                    android.graphics.BitmapFactory.decodeFile(file.absolutePath)
-                }
-                if (bitmap != null) {
+            items(frames, key = { it.timestampUs }) { frame ->
+                Box {
                     Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = file.name,
+                        bitmap = frame.bitmap.asImageBitmap(),
+                        contentDescription = "Thumbnail at ${frame.timestampUs / 1_000_000}s",
                         modifier = Modifier.fillMaxWidth().height(120.dp),
                         contentScale = ContentScale.Crop
+                    )
+                    Text(
+                        text = "%.2f".format(frame.score),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(4.dp)
                     )
                 }
             }
         }
-    }
-}
-
-private suspend fun extractFrames(
-    context: android.content.Context,
-    videoUri: Uri
-): List<File> = withContext(Dispatchers.IO) {
-    val outputDir = File(context.filesDir, "thumbnails").apply {
-        if (exists()) deleteRecursively()
-        mkdirs()
-    }
-
-    val retriever = MediaMetadataRetriever()
-    try {
-        retriever.setDataSource(context, videoUri)
-
-        val durationMs = retriever
-            .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-            ?.toLongOrNull() ?: return@withContext emptyList()
-
-        val intervalUs = 10_000_000L // 10 seconds in microseconds
-        val files = mutableListOf<File>()
-        var timeUs = 0L
-        var index = 0
-
-        while (timeUs < durationMs * 1000) {
-            val bitmap = retriever.getFrameAtTime(
-                timeUs,
-                MediaMetadataRetriever.OPTION_CLOSEST_SYNC
-            )
-            if (bitmap != null) {
-                val file = File(outputDir, "thumb_${index}.jpg")
-                FileOutputStream(file).use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
-                }
-                bitmap.recycle()
-                files.add(file)
-                index++
-            }
-            timeUs += intervalUs
-        }
-
-        files
-    } catch (e: Exception) {
-        e.printStackTrace()
-        emptyList()
-    } finally {
-        retriever.release()
     }
 }

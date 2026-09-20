@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "abhay.live.now.thumbnailmaker"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -36,6 +36,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -43,12 +44,27 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+
+    // Media3 (extractor + common)
+    implementation(libs.media3.extractor)
+    implementation(libs.media3.common)
+
+    // ML Kit face detection (on-device)
+    implementation(libs.mlkit.face.detection)
+
+    // MediaPipe Tasks Vision (image embedder)
+    implementation(libs.mediapipe.tasks.vision)
+
+    // Coroutines play services (for ML Kit Task.await())
+    implementation(libs.kotlinx.coroutines.play.services)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
