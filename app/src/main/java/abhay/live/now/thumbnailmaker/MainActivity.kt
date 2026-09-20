@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -100,6 +101,20 @@ fun ThumbnailScreen(
                     style = MaterialTheme.typography.titleMedium
                 )
             }
+            is PickerViewModel.UiState.Uploading -> {
+                Text(
+                    text = state.message,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                CircularProgressIndicator()
+            }
+            is PickerViewModel.UiState.ServerResult -> {
+                Text(
+                    text = "Server selected frame #${state.frameChoice}",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
             is PickerViewModel.UiState.Error -> {
                 Text(
                     text = state.message,
@@ -112,28 +127,32 @@ fun ThumbnailScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Buttons
-        val isProcessing = uiState is PickerViewModel.UiState.Processing
-        Button(
-            onClick = { videoPickerLauncher.launch("video/*") },
-            enabled = !isProcessing
-        ) {
-            Text("Pick Video")
+        if (uiState is PickerViewModel.UiState.Idle || uiState is PickerViewModel.UiState.Error) {
+            Button(
+                onClick = { videoPickerLauncher.launch("video/*") }
+            ) {
+                Text("Pick Video")
+            }
         }
 
         if (uiState is PickerViewModel.UiState.Done) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(
-                onClick = { viewModel.saveAllToGallery() },
-                enabled = saveState !is PickerViewModel.SaveState.Saving
-            ) {
-                Text(
-                    when (saveState) {
-                        is PickerViewModel.SaveState.Saving -> "Saving..."
-                        is PickerViewModel.SaveState.Saved ->
-                            "Saved ${(saveState as PickerViewModel.SaveState.Saved).count} to Gallery"
-                        else -> "Download All"
-                    }
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { viewModel.saveAllToGallery() },
+                    enabled = saveState !is PickerViewModel.SaveState.Saving
+                ) {
+                    Text(
+                        when (saveState) {
+                            is PickerViewModel.SaveState.Saving -> "Saving..."
+                            is PickerViewModel.SaveState.Saved ->
+                                "Saved ${(saveState as PickerViewModel.SaveState.Saved).count}"
+                            else -> "Download All"
+                        }
+                    )
+                }
+                Button(onClick = { viewModel.sendToServer() }) {
+                    Text("Send to Server")
+                }
             }
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = { viewModel.reset() }) {
@@ -141,41 +160,60 @@ fun ThumbnailScreen(
             }
         }
 
-        if (uiState is PickerViewModel.UiState.Error) {
+        if (uiState is PickerViewModel.UiState.ServerResult || uiState is PickerViewModel.UiState.Error) {
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = { viewModel.reset() }) {
-                Text("Reset")
+                Text("Start Over")
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Results grid
-        val frames = (uiState as? PickerViewModel.UiState.Done)?.frames ?: emptyList()
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 150.dp),
-            contentPadding = PaddingValues(4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            items(frames, key = { it.timestampUs }) { frame ->
-                Box {
-                    Image(
-                        bitmap = frame.bitmap.asImageBitmap(),
-                        contentDescription = "Thumbnail at ${frame.timestampUs / 1_000_000}s",
-                        modifier = Modifier.fillMaxWidth().height(120.dp),
-                        contentScale = ContentScale.Crop
-                    )
+        // Content area
+        when (val state = uiState) {
+            is PickerViewModel.UiState.Done -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 150.dp),
+                    contentPadding = PaddingValues(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(state.frames, key = { it.timestampUs }) { frame ->
+                        Box {
+                            Image(
+                                bitmap = frame.bitmap.asImageBitmap(),
+                                contentDescription = "Thumbnail at ${frame.timestampUs / 1_000_000}s",
+                                modifier = Modifier.fillMaxWidth().height(120.dp),
+                                contentScale = ContentScale.Crop
+                            )
+                            Text(
+                                text = "%.2f".format(frame.score),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            is PickerViewModel.UiState.ServerResult -> {
+                Image(
+                    bitmap = state.thumbnail.asImageBitmap(),
+                    contentDescription = "Server generated thumbnail",
+                    modifier = Modifier.fillMaxWidth(),
+                    contentScale = ContentScale.FillWidth
+                )
+                if (state.text.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "%.2f".format(frame.score),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(4.dp)
+                        text = state.text,
+                        style = MaterialTheme.typography.bodyLarge
                     )
                 }
             }
+            else -> {}
         }
     }
 }

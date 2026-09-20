@@ -65,6 +65,10 @@ dependencies {
     // Coroutines play services (for ML Kit Task.await())
     implementation(libs.kotlinx.coroutines.play.services)
 
+    // OkHttp for server upload
+    implementation(libs.okhttp)
+    implementation(libs.okhttp.logging)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
